@@ -70,9 +70,7 @@ import { statusLabel } from "../../component/dialog-workspace-file-changes"
 import { DialogMessage } from "./dialog-message"
 import { DialogFork } from "./dialog-fork"
 import { DialogTimeline } from "./dialog-timeline"
-import { DialogGoUpsell } from "../../component/dialog-go-upsell"
 import { UsageLimitNotice, useLimitNotice, useUsageAlerts } from "../../component/usage"
-import { useStorage } from "../../context/storage"
 import { Composer } from "./composer"
 import { filetype } from "../../util/filetype"
 import parsers from "../../parsers-config"
@@ -625,124 +623,7 @@ export function Session(props: {
     current.submit()
   })
   const dialog = useDialog()
-  const storage = useStorage()
-  const [goUpsell, updateGoUpsell] = storage.store<{ lastSeenAt?: number; dontShow?: boolean }>("go-upsell", {
-    initial: {},
-  })
-  const [goUpsellMemory, updateGoUpsellMemory] = storage.memory<{ lastSeenAt?: number; dontShow?: boolean }>(
-    "go-upsell",
-    { initial: {} },
-  )
-  const handledFreeLimits = new Set<string>()
   useUsageAlerts(() => route.sessionID)
-  let sessionDisposed = false
-  onCleanup(() => {
-    sessionDisposed = true
-  })
-  // Restore the prompt when the free allowance stops it, and offer OpenCode Go on the first hit in a day.
-  onCleanup(
-    data.on("session.step.failed", (event) => {
-      if (event.data.sessionID !== route.sessionID || event.data.error.type !== "provider.free-limit") return
-      if (handledFreeLimits.has(event.data.assistantMessageID)) return
-      handledFreeLimits.add(event.data.assistantMessageID)
-      const current = prompt()
-      const wasEmpty = Boolean(
-        current &&
-          !current.current.text.trim() &&
-          !current.current.files?.length &&
-          !current.current.agents?.length &&
-          !current.current.skills?.length &&
-          !current.current.pasted.length,
-      )
-      if (!wasEmpty || !current) return
-      const list = messages()
-      const end = list.findIndex((item) => item.id === event.data.assistantMessageID)
-      for (let i = end - 1; i >= 0; i--) {
-        const item = list[i]
-        if (!item || item.type === "shell" || item.type === "idle") break
-        if (item.type === "user" && !data.session.input.has(route.sessionID, item.id)) {
-          current.set({ ...projectedPromptInput(item), pasted: [] })
-          break
-        }
-      }
-      if (dialog.stack.length > 0) return
-      if (goUpsell.dontShow || goUpsellMemory.dontShow) return
-      const now = Date.now()
-      const seen = Math.max(goUpsell.lastSeenAt ?? 0, goUpsellMemory.lastSeenAt ?? 0)
-      if (seen > 0 && now - seen < 86_400_000) return
-      const expectedText = current.current.text
-      const expectedFiles = current.current.files?.length ?? 0
-      const expectedAgents = current.current.agents?.length ?? 0
-      const expectedSkills = current.current.skills?.length ?? 0
-      const expectedPasted = current.current.pasted.length
-      const hasRecalledPrompt = () => {
-        const active = prompt()
-        return Boolean(
-          !sessionDisposed &&
-            route.sessionID === event.data.sessionID &&
-            active &&
-            active.current.text === expectedText &&
-            (active.current.files?.length ?? 0) === expectedFiles &&
-            (active.current.agents?.length ?? 0) === expectedAgents &&
-            (active.current.skills?.length ?? 0) === expectedSkills &&
-            active.current.pasted.length === expectedPasted,
-        )
-      }
-      const canOpen = () =>
-        Boolean(hasRecalledPrompt() && dialog.stack.length === 0 && !goUpsell.dontShow && !goUpsellMemory.dontShow)
-      const previousSeen = goUpsellMemory.lastSeenAt
-      updateGoUpsellMemory((draft) => {
-        draft.lastSeenAt = now
-      })
-      let claimed = false
-      void updateGoUpsell((draft) => {
-        if (draft.dontShow) {
-          updateGoUpsellMemory((mem) => {
-            mem.dontShow = true
-            mem.lastSeenAt = draft.lastSeenAt ?? previousSeen
-          })
-          return
-        }
-        if ((draft.lastSeenAt ?? 0) > 0 && now - (draft.lastSeenAt ?? 0) < 86_400_000) {
-          updateGoUpsellMemory((mem) => {
-            mem.lastSeenAt = draft.lastSeenAt
-          })
-          return
-        }
-        if (!canOpen()) {
-          updateGoUpsellMemory((mem) => {
-            mem.lastSeenAt = previousSeen
-          })
-          return
-        }
-        draft.lastSeenAt = now
-        claimed = true
-      })
-        .catch(() => {
-          claimed = true
-        })
-        .then(() => {
-          if (!claimed || !canOpen()) return
-          dialog.replace(() => (
-            <DialogGoUpsell
-              reset={freeLimitReset(event.data.error.retryAfterMs, event.created)}
-              canContinue={hasRecalledPrompt}
-              onDontShowAgain={() => {
-                updateGoUpsellMemory((draft) => {
-                  draft.dontShow = true
-                })
-                void updateGoUpsell((draft) => {
-                  draft.dontShow = true
-                }).catch(() => undefined)
-              }}
-              onSubscribe={() => {
-                prompt()?.submit()
-              }}
-            />
-          ))
-        })
-    }),
-  )
   const runPendingAction = createSingleFlight<string>()
   const mutatePending = async (action: PendingAction, inboxID: string, failureLabel?: string) => {
     const result = await runPendingAction(inboxID, async () => {
@@ -2530,7 +2411,7 @@ function FreeLimitNotice(props: { message: Pick<SessionMessageAssistant, "error"
     <box paddingLeft={3} flexDirection="column">
       <text fg={theme.text.muted}>You've used today's free messages.{reset() ? ` They reset at ${reset()}.` : ""}</text>
       <text fg={theme.text.muted}>
-        Upgrade to OpenCode Go → <span style={{ fg: theme.text.base }}>/connect</span> · Switch model →{" "}
+        Upgrade to OmniBreach → <span style={{ fg: theme.text.base }}>/connect</span> · Switch model →{" "}
         <span style={{ fg: theme.text.base }}>/models</span>
       </text>
     </box>

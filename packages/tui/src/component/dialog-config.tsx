@@ -30,7 +30,7 @@ export const settings: Setting[] = [
     category: "Appearance",
     path: ["theme", "name"],
     description: "Color theme used across the interface",
-    default: "opencode",
+    default: "omnibreach",
     keywords: ["color scheme", "colors"],
     open: (dialog) =>
       dialog.replace(() => (

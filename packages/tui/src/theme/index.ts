@@ -3,6 +3,7 @@ import { resolveThemeColors } from "./resolve"
 import { DEFAULT_THEMES, type Theme, type ThemeV1Json } from "./v1"
 import opencode from "./assets/v2/opencode.json" with { type: "json" }
 import opencode2 from "./assets/v2/opencode2.json" with { type: "json" }
+import omnibreach from "./assets/v2/omnibreach.json" with { type: "json" }
 
 export { DEFAULT_THEMES, type Theme, type ThemeV1Json } from "./v1"
 
@@ -24,6 +25,15 @@ export function getOpenCodeTheme() {
   return document
 }
 
+let omnibreachTheme: ThemeDocument | undefined
+
+// OmniBreach: the default brand theme (red-forward). Registered as a normal theme so it is
+// selectable and set as the default active theme (see context/theme.tsx and mini/theme.ts).
+export function getOmniBreachTheme() {
+  omnibreachTheme ??= parseThemeDocument(omnibreach, "omnibreach")
+  return omnibreachTheme
+}
+
 let opencode2Theme: ThemeDocument | undefined
 
 // Temporary theme for the "new-designs" experiment. It is not part of allThemes(), so only the
@@ -38,6 +48,7 @@ function listThemes(): Record<string, ThemeDocumentSource> {
   const themes: Record<string, ThemeDocumentSource> = {
     ...DEFAULT_THEMES,
     opencode: getOpenCodeTheme(),
+    omnibreach: getOmniBreachTheme(),
     ...customThemes,
   }
   return {
