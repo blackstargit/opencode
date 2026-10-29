@@ -38,6 +38,7 @@ import { HttpClientRequest, HttpClientResponse } from "effect/http"
 import { AsyncLocalStorage } from "node:async_hooks"
 import type { ID, RuntimeInfo } from "./model.js"
 import { Provider } from "./provider.js"
+import { omnibreachMtlsFetch } from "./omnibreach-mtls-fetch.js"
 import { State } from "./state.js"
 import { stringify } from "./tool/runtime.js"
 
@@ -129,7 +130,13 @@ function prepareOptions(model: RuntimeInfo, pkg: string) {
     body: projected.body,
   }
 
-  const customFetch = settings.fetch
+  // The OmniBreach provider reaches its gateway over client-cert mTLS: when cert/key paths are
+  // configured (installer-supplied in omnibreach.json), present them via a native tls fetch.
+  const customFetch =
+    settings.fetch ??
+    (model.providerID === "omnibreach" && settings.cert && settings.key
+      ? omnibreachMtlsFetch(settings.cert, settings.key)
+      : undefined)
   const timeouts = Provider.timeouts(settings)
   options.fetch = async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
     const opts = { ...(init ?? {}) }
