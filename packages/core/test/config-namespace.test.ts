@@ -4,6 +4,7 @@ import os from "os"
 import path from "path"
 import { pathToFileURL } from "url"
 import { ConfigDiscovery } from "@opencode/core/config/discovery"
+import { configDirectories, projectConfigDirectories } from "../../tui/src/util/config-directories"
 
 describe("config namespace", () => {
   test("global config dir resolves under omnibreach, not opencode", () => {
@@ -55,5 +56,36 @@ describe("config namespace", () => {
       expect(resolved).not.toContain("opencode")
       expect(resolved.toLowerCase()).toContain("omnibreach")
     }
+  })
+
+  // The on-disk namespace the TUI and `mcp add` READ/WRITE must match what discovery (above) reads,
+  // or `mcp add` writes a config discovery never loads. Guards the files outside discovery.ts.
+  test("tui config + project dirs resolve under .omnibreach, never .opencode", () => {
+    const cwd = path.join(os.tmpdir(), "a", "b", "c")
+    const dirs = [
+      ...configDirectories(path.join(os.tmpdir(), "cfg"), cwd).slice(1),
+      ...projectConfigDirectories(path.join(os.tmpdir(), "a"), cwd),
+    ]
+    expect(dirs.length).toBeGreaterThan(0)
+    for (const dir of dirs) {
+      expect(path.basename(dir)).toBe(".omnibreach")
+      expect(dir).not.toContain(".opencode")
+    }
+  })
+
+  test("mcp add writes omnibreach.json/.omnibreach and the tui/plan writers drop .opencode", () => {
+    const read = (rel: string) => fs.readFileSync(path.join(import.meta.dir, rel), "utf8")
+    for (const rel of [
+      "../../cli/src/commands/handlers/mcp/add.ts",
+      "../../tui/src/plugin/discovery.ts",
+      "../src/plugin/plan.ts",
+    ]) {
+      const text = read(rel)
+      expect(text).not.toContain(".opencode")
+      expect(text).toContain(".omnibreach")
+    }
+    const add = read("../../cli/src/commands/handlers/mcp/add.ts")
+    expect(add).not.toContain("opencode.json")
+    expect(add).toContain("omnibreach.json")
   })
 })

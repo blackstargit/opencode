@@ -125,28 +125,28 @@ test("global --server and --standalone flags parse in any position for server-co
 
   const url = "http://127.0.0.1:43210"
   const serverCases: ReadonlyArray<readonly [ReadonlyArray<string>, string]> = [
-    [["--server", url, "session", "list"], "opencode session list"],
-    [["session", "--server", url, "list"], "opencode session list"],
-    [["session", "list", "--server", url], "opencode session list"],
-    [["session", "--server", url, "delete", "ses_123"], "opencode session delete"],
-    [["--server", url, "plugin", "list"], "opencode plugin list"],
-    [["plugin", "--server", url, "list"], "opencode plugin list"],
-    [["plugin", "list", "--server", url], "opencode plugin list"],
-    [["plugin", "--server", url, "check"], "opencode plugin check"],
-    [["plugin", "--server", url, "update"], "opencode plugin update"],
-    [["--server", url, "mcp", "list"], "opencode mcp list"],
-    [["mcp", "--server", url, "list"], "opencode mcp list"],
-    [["mcp", "list", "--server", url], "opencode mcp list"],
-    [["mcp", "--server", url, "auth", "linear"], "opencode mcp auth"],
-    [["mcp", "--server", url, "logout", "linear"], "opencode mcp logout"],
-    [["auth", "--server", url, "list"], "opencode auth list"],
-    [["debug", "--server", url, "config"], "opencode debug config"],
-    [["debug", "--server", url, "agents"], "opencode debug agents"],
-    [["debug", "--server", url, "heap-dump"], "opencode debug heap-dump"],
-    [["--server", url, "models"], "opencode models"],
-    [["models", "--server", url], "opencode models"],
-    [["--server", url, "run", "hello"], "opencode run"],
-    [["run", "hello", "--server", url], "opencode run"],
+    [["--server", url, "session", "list"], "omnibreach session list"],
+    [["session", "--server", url, "list"], "omnibreach session list"],
+    [["session", "list", "--server", url], "omnibreach session list"],
+    [["session", "--server", url, "delete", "ses_123"], "omnibreach session delete"],
+    [["--server", url, "plugin", "list"], "omnibreach plugin list"],
+    [["plugin", "--server", url, "list"], "omnibreach plugin list"],
+    [["plugin", "list", "--server", url], "omnibreach plugin list"],
+    [["plugin", "--server", url, "check"], "omnibreach plugin check"],
+    [["plugin", "--server", url, "update"], "omnibreach plugin update"],
+    [["--server", url, "mcp", "list"], "omnibreach mcp list"],
+    [["mcp", "--server", url, "list"], "omnibreach mcp list"],
+    [["mcp", "list", "--server", url], "omnibreach mcp list"],
+    [["mcp", "--server", url, "auth", "linear"], "omnibreach mcp auth"],
+    [["mcp", "--server", url, "logout", "linear"], "omnibreach mcp logout"],
+    [["auth", "--server", url, "list"], "omnibreach auth list"],
+    [["debug", "--server", url, "config"], "omnibreach debug config"],
+    [["debug", "--server", url, "agents"], "omnibreach debug agents"],
+    [["debug", "--server", url, "heap-dump"], "omnibreach debug heap-dump"],
+    [["--server", url, "models"], "omnibreach models"],
+    [["models", "--server", url], "omnibreach models"],
+    [["--server", url, "run", "hello"], "omnibreach run"],
+    [["run", "hello", "--server", url], "omnibreach run"],
   ]
 
   for (const [args, expectedPath] of serverCases) {
@@ -157,7 +157,7 @@ test("global --server and --standalone flags parse in any position for server-co
 
   captured.length = 0
   await runArgs(["session", "--standalone", "list"])
-  expect(captured).toEqual([{ path: "opencode session list", server: undefined, standalone: true }])
+  expect(captured).toEqual([{ path: "omnibreach session list", server: undefined, standalone: true }])
 
   await expect(runArgs(["plugin", "add", "some-plugin", "--server", url])).rejects.toThrow()
   await expect(runArgs(["plugin", "remove", "some-plugin", "--server", url])).rejects.toThrow()
@@ -198,7 +198,7 @@ test("local config commands do not start or require a server", async () => {
     ])
     expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" })
     expect(stdout).toContain('MCP server "demo" added')
-    const config = await Bun.file(path.join(root, "config", "opencode.json")).json()
+    const config = await Bun.file(path.join(root, "config", "omnibreach.json")).json()
     expect(config).toMatchObject({
       mcp: {
         servers: {
