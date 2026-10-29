@@ -34,16 +34,16 @@ describe("debug paths command", () => {
       expect({ exitCode: result.exitCode, stderr: result.stderr }).toEqual({ exitCode: 0, stderr: "" })
       expect(paths).toMatchObject({
         home: os.homedir(),
-        data: path.join(root, "data", "opencode"),
-        config: path.join(root, "config", "opencode"),
-        cache: path.join(root, "cache", "opencode"),
-        state: path.join(root, "state", "opencode"),
-        bin: path.join(root, "cache", "opencode", "bin"),
-        log: path.join(root, "data", "opencode", "log"),
-        repos: path.join(root, "data", "opencode", "repos"),
+        data: path.join(root, "data", "omnibreach"),
+        config: path.join(root, "config", "omnibreach"),
+        cache: path.join(root, "cache", "omnibreach"),
+        state: path.join(root, "state", "omnibreach"),
+        bin: path.join(root, "cache", "omnibreach", "bin"),
+        log: path.join(root, "data", "omnibreach", "log"),
+        repos: path.join(root, "data", "omnibreach", "repos"),
       })
       expect(paths.tmp).toBeTruthy()
-      expect(await Bun.file(path.join(root, "state", "opencode", "service-local.json")).exists()).toBe(false)
+      expect(await Bun.file(path.join(root, "state", "omnibreach", "service-local.json")).exists()).toBe(false)
     } finally {
       await fs.rm(root, { recursive: true, force: true })
     }

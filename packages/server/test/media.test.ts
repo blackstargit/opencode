@@ -317,7 +317,7 @@ it.live("follows experimental.media_blob from the session's project config and s
       yield* Effect.promise(async () => {
         await fs.mkdir(global, { recursive: true })
         await fs.mkdir(project, { recursive: true })
-        await fs.writeFile(path.join(project, "opencode.json"), JSON.stringify({ experimental: { media_blob: true } }))
+        await fs.writeFile(path.join(project, "omnibreach.json"), JSON.stringify({ experimental: { media_blob: true } }))
       })
       // The flag lives only in the project's config; the server's cwd and global config leave it off.
       const handler = yield* ServerFetch.make({
