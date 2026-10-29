@@ -113,8 +113,8 @@
       "name": "@opencode/cli",
       "version": "2.2.0",
       "bin": {
-        "opencode": "./bin/opencode.cjs",
-        "opencode2": "./bin/opencode2.cjs",
+        "omnibreach": "./bin/omnibreach.cjs",
+        "omnibreach2": "./bin/omnibreach2.cjs",
       },
       "dependencies": {
         "@agentclientprotocol/sdk": "1.6.0",
