@@ -20,9 +20,12 @@ describe("omnibreach default-config layer", () => {
     expect(provider?.models?.["omnibreach-agent"]).toBeDefined()
     expect(provider?.models?.["omnibreach-agent"]?.name).toBe("OmniBreach Agent")
 
-    const server = doc.info.mcp?.servers?.omnibreach
-    expect(server?.type).toBe("remote")
-    if (server?.type === "remote") expect(server.url).toBe("http://127.0.0.1:8888")
+    const server = doc.info.mcp?.servers?.["omnibreach-tools"]
+    expect(server?.type).toBe("local")
+    if (server?.type === "local") {
+      expect(server.command).toContain("/app/omnibreach_mcp.py")
+      expect(server.command.join(" ")).toContain("http://127.0.0.1:8888")
+    }
 
     const model = doc.info.model as { providerID?: string; model?: string } | undefined
     expect(model?.providerID).toBe("omnibreach")

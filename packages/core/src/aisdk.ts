@@ -123,9 +123,14 @@ function wrapSSE(res: Response, ms: number, ctl: AbortController) {
 function prepareOptions(model: RuntimeInfo, pkg: string) {
   const projected = mapBodyToProviderOptions(model, pkg)
   const settings = model.settings ?? {}
+  // cert/key are mTLS transport inputs (consumed below), not provider options — strip them so
+  // nativeSettings' pass-through of unknown keys doesn't forward the cert/key paths to the SDK.
+  const providerOptions = Provider.nativeSettings(settings) as Record<string, unknown>
+  delete providerOptions.cert
+  delete providerOptions.key
   const options: Record<string, unknown> = {
     name: model.canonical ?? model.providerID,
-    ...Provider.nativeSettings(settings),
+    ...providerOptions,
     headers: model.headers,
     body: projected.body,
   }

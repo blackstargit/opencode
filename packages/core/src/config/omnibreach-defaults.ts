@@ -27,9 +27,24 @@ const RAW = {
   },
   mcp: {
     servers: {
-      // Default OmniBreach MCP tool server. NOTE: 8888 is the tool container's HTTP endpoint on the
-      // client machine; overridable via omnibreach.json if a deployment exposes it elsewhere.
-      omnibreach: { type: "remote", url: "http://127.0.0.1:8888" },
+      // Default OmniBreach MCP tool server. The MCP server is a stdio process (omnibreach_mcp.py)
+      // launched via `docker exec` into the client's tool container; the 127.0.0.1:8888 here is the
+      // backend that stdio process talks to (its --server arg), NOT an MCP transport endpoint. This
+      // matches the known-good spike config (harness/omnibreach-spike/opencode.json). The installer
+      // (sub-project C) can override the container name / python path if a deployment differs.
+      "omnibreach-tools": {
+        type: "local",
+        command: [
+          "/usr/bin/docker",
+          "exec",
+          "-i",
+          "omnibreach-server",
+          "/app/.venv/bin/python",
+          "/app/omnibreach_mcp.py",
+          "--server",
+          "http://127.0.0.1:8888",
+        ],
+      },
     },
   },
 } as const
