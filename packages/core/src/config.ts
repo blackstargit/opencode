@@ -16,6 +16,7 @@ import { AbsolutePath } from "./schema.js"
 import { ConfigVariable } from "./config/variable.js"
 import { ConfigNormalize } from "./config/normalize.js"
 import { ConfigDiscovery } from "./config/discovery.js"
+import { omnibreachDefaults } from "./config/omnibreach-defaults.js"
 import { ConfigWatch } from "./config/watch.js"
 import { ConfigIntegration } from "./config/integration.js"
 import { WellKnown } from "./wellknown.js"
@@ -64,6 +65,9 @@ export const Options = Schema.Struct({
   claude: Schema.optional(Schema.Boolean),
   file: Schema.optional(Schema.String),
   content: Schema.optional(Schema.String),
+  // false skips the baked OmniBreach default layer (below). Defaults ON; upstream config-mechanics
+  // tests set it false to assert pure file-loading behavior without the built-in layer.
+  defaults: Schema.optional(Schema.Boolean),
 })
 export type Options = typeof Options.Type
 
@@ -305,6 +309,11 @@ export const layer = (options?: Options) =>
         )
         return [
           ...managedPolicies,
+          // Baked OmniBreach defaults: lowest-priority SETTINGS source (managedPolicies above carry
+          // only policies, no settings, and keep their load-first position). Every real settings
+          // layer below — integrations, wellknown, global, explicit/direct files, project, managed —
+          // overrides these, so an installer's omnibreach.json wins while the baked structure fills gaps.
+          ...(options?.defaults === false ? [] : [omnibreachDefaults()]),
           ...integrations.values(),
           ...(yield* loadWellknown().pipe(Effect.orDie)),
           ...globalSupplementary,

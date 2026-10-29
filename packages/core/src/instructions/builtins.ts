@@ -5,6 +5,10 @@ import { Context, DateTime, Effect, Layer, Schema } from "effect"
 import { Global } from "@opencode/util/global"
 import { Location } from "../location.js"
 import { Instructions } from "./index.js"
+// Baked OmniBreach pentest system prompt. Source of truth is backend/src/helpers/prompts/agent_system.md
+// (via harness/client/overlay/config/AGENTS.md) with the backend-only retrieve_tool_output/receipt
+// lines trimmed. Re-sync this file if the backend prompt changes materially.
+import pentestPrompt from "./omnibreach-pentest.md" with { type: "text" }
 
 export interface Interface {
   readonly load: () => Effect.Effect<Instructions.List>
@@ -21,6 +25,16 @@ const layer = Layer.effect(
       load: () =>
         Effect.succeed(
           Instructions.combine([
+            // Static and most-shared across sessions, so it leads the prompt-cache-stable prefix.
+            Instructions.make({
+              key: Instructions.Key.make("core/omnibreach-pentest"),
+              codec: Schema.toCodecJson(Schema.String),
+              read: Effect.succeed(pentestPrompt.trim()),
+              render: {
+                initial: (prompt) => prompt,
+                changed: (_previous, prompt) => prompt,
+              },
+            }),
             Instructions.make({
               key: Instructions.Key.make("core/date"),
               codec: Schema.toCodecJson(Schema.String),

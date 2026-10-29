@@ -1,5 +1,7 @@
 import { describe, expect } from "bun:test"
 import os from "os"
+import fs from "fs"
+import path from "path"
 import { Effect, Layer } from "effect"
 import { TestClock } from "effect/testing"
 import { AppNodeBuilder } from "@opencode/core/effect/app-node-builder"
@@ -40,7 +42,14 @@ describe("InstructionBuiltIns", () => {
       const context = yield* InstructionBuiltIns.Service
       const initialized = yield* readInitial(yield* context.load())
 
-      expect(initialized.text).toBe(
+      // The baked OmniBreach pentest prompt leads the builtins (static, most-shared → cache-stable
+      // prefix); the date + environment instructions still render exactly after it.
+      const pentestPrompt = fs.readFileSync(
+        path.join(import.meta.dir, "../../src/instructions/omnibreach-pentest.md"),
+        "utf8",
+      )
+      expect(initialized.text.startsWith(pentestPrompt.trim())).toBe(true)
+      expect(initialized.text).toContain(
         [
           `Today's date: ${localDate(timestamp)}`,
           "",
