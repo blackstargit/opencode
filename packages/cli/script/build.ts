@@ -37,24 +37,17 @@ const highlights = Script.preview ? undefined : embed(process.env.OPENCODE_RELEA
 const releaseAssets = new Map<string, Promise<Map<string, string>>>()
 const modelsSnapshot = modelsSnapshotPlugin(await bundledModelsSnapshot())
 
+// OmniBreach v1 ships only linux-x64 + win32-x64 (spec Global Constraints). Scoped from OpenCode's
+// full 12-target matrix so a default (no-flag) build produces exactly our two shippable binaries;
+// the arm64/darwin/musl/baseline variants are out of v1 scope. Re-add here if v1 scope changes.
 const allTargets: {
   os: string
   arch: "arm64" | "x64"
   abi?: "musl"
   avx2?: false
 }[] = [
-  { os: "linux", arch: "arm64" },
   { os: "linux", arch: "x64" },
-  { os: "linux", arch: "x64", avx2: false },
-  { os: "linux", arch: "arm64", abi: "musl" },
-  { os: "linux", arch: "x64", abi: "musl" },
-  { os: "linux", arch: "x64", abi: "musl", avx2: false },
-  { os: "darwin", arch: "arm64" },
-  { os: "darwin", arch: "x64" },
-  { os: "darwin", arch: "x64", avx2: false },
-  { os: "win32", arch: "arm64" },
   { os: "win32", arch: "x64" },
-  { os: "win32", arch: "x64", avx2: false },
 ]
 
 const targets =
