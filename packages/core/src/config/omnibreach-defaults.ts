@@ -35,7 +35,7 @@ const RAW = {
       "omnibreach-tools": {
         type: "local",
         command: [
-          "/usr/bin/docker",
+          "docker",
           "exec",
           "-i",
           "omnibreach-server",
