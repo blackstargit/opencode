@@ -38,7 +38,6 @@ import { HttpClientRequest, HttpClientResponse } from "effect/http"
 import { AsyncLocalStorage } from "node:async_hooks"
 import type { ID, RuntimeInfo } from "./model.js"
 import { Provider } from "./provider.js"
-import { omnibreachMtlsFetch } from "./omnibreach-mtls-fetch.js"
 import { State } from "./state.js"
 import { stringify } from "./tool/runtime.js"
 
@@ -123,11 +122,7 @@ function wrapSSE(res: Response, ms: number, ctl: AbortController) {
 function prepareOptions(model: RuntimeInfo, pkg: string) {
   const projected = mapBodyToProviderOptions(model, pkg)
   const settings = model.settings ?? {}
-  // cert/key are mTLS transport inputs (consumed below), not provider options — strip them so
-  // nativeSettings' pass-through of unknown keys doesn't forward the cert/key paths to the SDK.
   const providerOptions = Provider.nativeSettings(settings) as Record<string, unknown>
-  delete providerOptions.cert
-  delete providerOptions.key
   const options: Record<string, unknown> = {
     name: model.canonical ?? model.providerID,
     ...providerOptions,
@@ -135,13 +130,7 @@ function prepareOptions(model: RuntimeInfo, pkg: string) {
     body: projected.body,
   }
 
-  // The OmniBreach provider reaches its gateway over client-cert mTLS: when cert/key paths are
-  // configured (installer-supplied in omnibreach.json), present them via a native tls fetch.
-  const customFetch =
-    settings.fetch ??
-    (model.providerID === "omnibreach" && settings.cert && settings.key
-      ? omnibreachMtlsFetch(settings.cert, settings.key)
-      : undefined)
+  const customFetch = settings.fetch
   const timeouts = Provider.timeouts(settings)
   options.fetch = async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
     const opts = { ...(init ?? {}) }

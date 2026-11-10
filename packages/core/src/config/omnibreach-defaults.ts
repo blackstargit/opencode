@@ -4,13 +4,12 @@ import { Schema } from "effect"
 import { Document, Info } from "@opencode/schema/config"
 
 // Baked, lowest-priority default config layer for the OmniBreach fork. The installer drops an
-// `omnibreach.json` (a higher-priority layer) carrying the per-deployment gateway `baseURL` and
-// per-client cert/key paths; because OpenCode overlays provider config across layers
+// `omnibreach.json` (a higher-priority layer) carrying the per-deployment gateway `baseURL`;
+// clients authenticate via an OAuth (Cloudflare Access) login, not baked secrets. Because OpenCode overlays provider config across layers
 // (`config/plugin/provider.ts` flat-maps every entry), those supplied values merge on top of the
 // structure baked here while keeping the baked name/models.
 //
-// NOT baked (supplied at install, per spec §3.3): the gateway `baseURL`, and the client cert/key
-// paths (which live under the omnibreach provider's settings and drive the mTLS fetch — Task 5).
+// NOT baked (supplied at install, per spec §3.3): the gateway `baseURL`. Auth is the OAuth login.
 const RAW = {
   model: "omnibreach/omnibreach-agent",
   providers: {
