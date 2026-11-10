@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { Effect } from "effect"
-import { authorize, bearerFetch, callbackPort, credential, needsRefresh, OmnibreachPlugin, refresh } from "@opencode/core/plugin/provider/omnibreach"
+import { Effect, Exit, Scope } from "effect"
+import { authorize, bearerFetch, callbackPort, credential, headlessAuthorize, needsRefresh, OmnibreachPlugin, refresh } from "@opencode/core/plugin/provider/omnibreach"
 import { ProviderPlugins } from "@opencode/core/plugin/provider"
 
 // Hermetic stub of a Cloudflare Access OIDC endpoint: discovery + authorize + token.
@@ -76,9 +76,60 @@ async function runAuthorize(issuer: string, clientID: string, code: string) {
   )
 }
 
+// Drives the headless method the way a no-local-browser box does: start the loopback listener and keep
+// its scope OPEN (so the server stays up after authorize returns), hand back the authorize URL +
+// instructions, and `complete(code)` delivers the IdP redirect to the still-listening loopback and
+// awaits the SAME code→credential exchange the browser method uses, then closes the scope.
+async function runHeadlessAuthorize(issuer: string, clientID: string) {
+  const scope = Effect.runSync(Scope.make())
+  const result = await Effect.runPromise(headlessAuthorize(issuer, clientID).pipe(Scope.provide(scope)))
+  const url = new URL(result.url)
+  return {
+    url: result.url,
+    instructions: result.instructions,
+    complete: async (code: string) => {
+      const callback = new URL(url.searchParams.get("redirect_uri") ?? "")
+      callback.searchParams.set("state", url.searchParams.get("state") ?? "")
+      callback.searchParams.set("code", code)
+      try {
+        const [, cred] = await Effect.runPromise(
+          Effect.all(
+            [Effect.promise(() => fetch(callback, { headers: { Connection: "close" } })), result.callback],
+            { concurrency: "unbounded" },
+          ),
+        )
+        return cred
+      } finally {
+        await Effect.runPromise(Scope.close(scope, Exit.void))
+      }
+    },
+  }
+}
+
 describe("OmnibreachPlugin", () => {
   test("is registered alongside the other provider plugins", () => {
     expect(ProviderPlugins).toContain(OmnibreachPlugin)
+  })
+
+  test("headless method prints an authorize URL + instructions and completes the same exchange", async () => {
+    const stub = stubOidc()
+    try {
+      const start = await runHeadlessAuthorize(stub.issuer, "stub-client")
+      expect(start.url).toContain("/authorize") // same OIDC authorize endpoint as the browser method
+      expect(start.instructions).toMatch(/open this link/i) // copy-the-link UX for a box with no browser
+      const cred = await start.complete("headless-code")
+      expect(cred.type).toBe("oauth")
+      expect(cred.access).toBe("stub-access")
+      // identical code→credential exchange: authorization_code grant + the PKCE verifier
+      expect(stub.seen.token).toMatchObject({
+        grant_type: "authorization_code",
+        code: "headless-code",
+        client_id: "stub-client",
+      })
+      expect(stub.seen.token?.code_verifier).toBeTruthy()
+    } finally {
+      stub.close()
+    }
   })
 
   test("authorize() exchanges the code for an OAuth credential with absolute expiry", async () => {

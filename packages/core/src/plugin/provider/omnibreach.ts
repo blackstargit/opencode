@@ -82,12 +82,26 @@ export function credential(tokens: typeof Token.Type) {
   })
 }
 
+const browserInstructions = "Complete authorization in your browser. This window will close automatically."
+
+// Headless login (a box with NO local browser): the SAME loopback exchange, but the user opens the
+// authorize URL on another device and forwards the fixed callback port back here (e.g. ssh -L). The
+// only differences from the browser method are this text and that the CLI does not auto-open the URL.
+// TODO(live-CF): OOB copy-paste-code variant if CF Access supports it (spec §4.3) — a localized swap of
+// the loopback capture for a pasted-code prompt on THIS method only; do NOT build CF device-grant.
+const headlessInstructions =
+  `Open this link to sign in on any device with a browser, then make sure its OAuth callback can reach ` +
+  `local port ${callbackPort} on this machine (e.g. ssh -L ${callbackPort}:localhost:${callbackPort}). ` +
+  `This window finishes automatically once the callback arrives.`
+
 /**
- * Browser login: discover endpoints, start the loopback callback listener, hand back the authorize
- * URL (PKCE S256) and a callback Effect that exchanges the delivered code. `issuerURL`/`client` are
- * parameters for testability; the registered method passes the module consts.
+ * Shared loopback login machinery: discover endpoints, start the loopback callback listener, and hand
+ * back the authorize URL (PKCE S256) + a callback Effect that exchanges the delivered code. BOTH the
+ * `browser` and `headless` methods call this — they differ only in `instructions` and in whether the
+ * CLI auto-opens the URL (a harness concern, not this function's). `issuerURL`/`client` are parameters
+ * for testability; the registered methods pass the module consts.
  */
-export function authorize(issuerURL: string, client: string) {
+function startLoopbackLogin(issuerURL: string, client: string, instructions: string) {
   return Effect.gen(function* () {
     const endpoints = yield* discover(issuerURL)
     const verifier = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url")
@@ -137,12 +151,22 @@ export function authorize(issuerURL: string, client: string) {
         code_challenge_method: "S256",
         state,
       })}`,
-      instructions: "Complete authorization in your browser. This window will close automatically.",
+      instructions,
       callback: Deferred.await(code).pipe(
         Effect.flatMap((value) => exchangeCode(value, verifier, endpoints.token_endpoint, client, redirect)),
       ),
     }
   })
+}
+
+/** Browser login — the CLI/TUI auto-opens the loopback authorize URL. */
+export function authorize(issuerURL: string, client: string) {
+  return startLoopbackLogin(issuerURL, client, browserInstructions)
+}
+
+/** Headless login — identical loopback exchange, surfaced for a machine with no local browser. */
+export function headlessAuthorize(issuerURL: string, client: string) {
+  return startLoopbackLogin(issuerURL, client, headlessInstructions)
 }
 
 // Pre-expiry window: refresh once the credential is within this long of expiry (or past it), rather
@@ -256,12 +280,27 @@ const browserMethod = {
   refresh: (value) => refresh(value, issuer, clientID),
 } satisfies IntegrationOAuthMethodRegistration
 
+// Second method (openai.ts's dual-method pattern): same OIDC endpoints + exchange + refresh as the
+// browser method — only the loopback URL is opened elsewhere and forwarded back. The stored credential
+// keeps methodID `browser` (via the shared credential()), so Task 4's bearerFetch reads it unchanged.
+const headlessMethod = {
+  integrationID,
+  method: {
+    id: Integration.MethodID.make("headless"),
+    type: "oauth",
+    label: "Login with OmniBreach (headless)",
+  },
+  authorize: () => headlessAuthorize(issuer, clientID),
+  refresh: (value) => refresh(value, issuer, clientID),
+} satisfies IntegrationOAuthMethodRegistration
+
 export const OmnibreachPlugin = define({
   id: "opencode.provider.omnibreach",
   effect: Effect.fn(function* (ctx) {
     const credentials = yield* Credential.Service
     yield* ctx.integration.transform((draft) => {
       draft.method.update(browserMethod)
+      draft.method.update(headlessMethod)
     })
 
     // Run the integration/credential Effects from the detached fetch callback below with the plugin's
