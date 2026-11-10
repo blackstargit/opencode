@@ -5,10 +5,12 @@ import type { Server } from "node:http"
 import { Credential } from "../../credential.js"
 import { Integration } from "../../integration.js"
 import { OauthCallbackPage } from "../../oauth/page.js"
+import { Provider } from "../../provider.js"
 import type { PluginInternal } from "../internal.js"
 
 const integrationID = Integration.ID.make("omnibreach")
 const methodID = Integration.MethodID.make("browser")
+const providerID = Provider.ID.make("omnibreach")
 
 // Cloudflare Access OIDC application for the OmniBreach model gateway. Single deployment, so these
 // are baked constants (the digitalocean.ts precedent), not per-user config.
@@ -182,6 +184,67 @@ export function refresh(value: Credential.OAuth, issuerURL: string, client: stri
   )
 }
 
+// --- Task 4: attach the current Bearer to every model request ---------------------------------
+
+type AuthFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
+
+export interface BearerFetchDeps {
+  /** The stored OmniBreach OAuth credential right now, or undefined when signed out. No auto-refresh. */
+  readonly read: () => Promise<Credential.OAuth | undefined>
+  /** Exchanges the refresh token for a fresh credential (Task 3's refresh()). */
+  readonly refresh: (credential: Credential.OAuth) => Promise<Credential.OAuth>
+  /** Writes a refreshed credential back to the store so the next read() returns it. */
+  readonly persist: (credential: Credential.OAuth) => Promise<void>
+  /** The underlying fetch to call — the AI SDK's timeout-aware fetch in production. */
+  readonly fetch: AuthFetch
+  readonly now?: () => number
+}
+
+// Concurrent requests sharing one near-expiry credential collapse onto a single token exchange here,
+// keyed by the refresh token, instead of stampeding the gateway (gitlab.ts's `refreshing`-map pattern).
+// ponytail: in-process single-flight only — the framework's build-time connection.resolve has its own
+// cross-process credentials.lock; fine for a single-user CLI, revisit if multi-Location refreshes ever race.
+const refreshing = new Map<string, Promise<Credential.OAuth>>()
+
+/**
+ * Wraps a fetch so every request carries `Authorization: Bearer <current access token>`. The credential
+ * is read fresh on each call and proactively refreshed within REFRESH_MARGIN_MS of expiry (single-flight,
+ * then persisted) — so a refresh can never leave a later request on a stale token, and the fresh header
+ * overrides whatever token the SDK baked into the cached model at build time. On a refresh failure it
+ * falls back to the current token (the gateway's 401 then drives re-login) rather than dropping auth.
+ */
+export function bearerFetch(deps: BearerFetchDeps): AuthFetch {
+  const now = deps.now ?? Date.now
+  const current = async () => {
+    const credential = await deps.read()
+    if (!credential || !needsRefresh(credential, now())) return credential
+    const key = credential.refresh
+    const inflight = refreshing.get(key)
+    if (inflight) return inflight
+    const attempt = (async () => {
+      try {
+        const next = await deps.refresh(credential)
+        await deps.persist(next)
+        return next
+      } catch {
+        return credential
+      }
+    })()
+    refreshing.set(key, attempt)
+    void attempt.finally(() => {
+      if (refreshing.get(key) === attempt) refreshing.delete(key)
+    })
+    return attempt
+  }
+  return async (input, init) => {
+    const credential = await current().catch(() => undefined)
+    if (!credential) return deps.fetch(input, init)
+    const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
+    headers.set("Authorization", `Bearer ${credential.access}`)
+    return deps.fetch(input, { ...init, headers })
+  }
+}
+
 const browserMethod = {
   integrationID,
   method: {
@@ -196,9 +259,57 @@ const browserMethod = {
 export const OmnibreachPlugin = define({
   id: "opencode.provider.omnibreach",
   effect: Effect.fn(function* (ctx) {
+    const credentials = yield* Credential.Service
     yield* ctx.integration.transform((draft) => {
       draft.method.update(browserMethod)
     })
+
+    // Run the integration/credential Effects from the detached fetch callback below with the plugin's
+    // own service context, so a request can read/refresh/persist the credential outside Effect land.
+    const context = yield* Effect.context<PluginInternal.Requirements>()
+    const run = <A>(effect: Effect.Effect<A, never, PluginInternal.Requirements>): Promise<A> =>
+      Effect.runPromise(Effect.provide(effect, context))
+
+    const activeCredentialID = Effect.gen(function* () {
+      const connection = yield* ctx.integration.connection.active(integrationID)
+      return connection?.type === "credential" ? Credential.ID.make(connection.id) : undefined
+    }).pipe(Effect.orElseSucceed(() => undefined))
+
+    // Read the stored OAuth credential WITHOUT the framework's build-time auto-refresh, so the
+    // per-request refresh below (needsRefresh/refresh/persist) stays the authority during a turn.
+    const readCredential = () =>
+      run(
+        Effect.gen(function* () {
+          const id = yield* activeCredentialID
+          const info = id ? yield* credentials.get(id) : undefined
+          return info?.value.type === "oauth" && info.value.methodID === methodID ? info.value : undefined
+        }).pipe(Effect.orElseSucceed(() => undefined)),
+      )
+    const persistCredential = (value: Credential.OAuth) =>
+      run(
+        Effect.gen(function* () {
+          const id = yield* activeCredentialID
+          if (id) yield* credentials.update(id, { value })
+        }).pipe(Effect.orElseSucceed(() => undefined)),
+      )
+
+    // Attach the Bearer at the fetch layer (the github-copilot precedent for an openai-compatible
+    // provider): wrap the AI SDK's timeout-aware fetch before the SDK is built, so every /v1/* call
+    // carries the current token. NOT provider `settings.fetch` — a function there is stripped by
+    // Provider.mergeOverlay's JSON decode at model-resolve time.
+    yield* ctx.aisdk.hook(
+      "sdk",
+      Effect.fn(function* (evt) {
+        if (evt.model.providerID !== providerID) return
+        const inner: AuthFetch = typeof evt.options.fetch === "function" ? (evt.options.fetch as AuthFetch) : fetch
+        evt.options.fetch = bearerFetch({
+          read: readCredential,
+          refresh: (value) => Effect.runPromise(refresh(value, issuer, clientID)),
+          persist: persistCredential,
+          fetch: inner,
+        })
+      }),
+    )
   }),
 } satisfies PluginInternal.InternalPlugin)
 

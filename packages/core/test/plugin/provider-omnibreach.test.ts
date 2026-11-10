@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
-import { authorize, callbackPort, credential, needsRefresh, OmnibreachPlugin, refresh } from "@opencode/core/plugin/provider/omnibreach"
+import { authorize, bearerFetch, callbackPort, credential, needsRefresh, OmnibreachPlugin, refresh } from "@opencode/core/plugin/provider/omnibreach"
 import { ProviderPlugins } from "@opencode/core/plugin/provider"
 
 // Hermetic stub of a Cloudflare Access OIDC endpoint: discovery + authorize + token.
@@ -160,6 +160,107 @@ describe("OmnibreachPlugin", () => {
     } finally {
       stub.close()
     }
+  })
+
+  // --- Task 4: per-request Bearer attach (bearerFetch wraps the SDK's fetch) ---
+
+  test("model requests carry the current Bearer, and the new one after refresh (never stale)", async () => {
+    let stored = credential({ access_token: "access-A", refresh_token: "refresh-A", expires_in: 3600 })
+    let refreshCount = 0
+    const seen: Array<string | null> = []
+    const fetchImpl = bearerFetch({
+      read: async () => stored,
+      refresh: async () => {
+        refreshCount++
+        return credential({ access_token: "access-B", refresh_token: "refresh-B", expires_in: 3600 })
+      },
+      persist: async (next) => {
+        stored = next
+      },
+      fetch: async (_input, init) => {
+        seen.push(new Headers(init?.headers ?? {}).get("authorization"))
+        return new Response("ok")
+      },
+    })
+
+    await fetchImpl("https://gateway/v1/chat/completions")
+    expect(seen.at(-1)).toBe("Bearer access-A") // fresh credential → its current token
+    expect(refreshCount).toBe(0) // nowhere near expiry → no refresh
+
+    // the token slips into the refresh margin (same access value, short expiry)
+    stored = credential({ access_token: "access-A", refresh_token: "refresh-A", expires_in: 10 })
+    await fetchImpl("https://gateway/v1/chat/completions")
+    expect(refreshCount).toBe(1)
+    expect(seen.at(-1)).toBe("Bearer access-B") // refreshed token, never the stale access-A
+
+    // the persisted (now-fresh) credential is read back on the next request
+    await fetchImpl("https://gateway/v1/chat/completions")
+    expect(refreshCount).toBe(1) // still fresh → no extra refresh
+    expect(seen.at(-1)).toBe("Bearer access-B")
+  })
+
+  test("the fresh Bearer overrides a token baked into the request, other headers kept", async () => {
+    const stored = credential({ access_token: "fresh-access", refresh_token: "r", expires_in: 3600 })
+    const seen: Array<{ authorization: string | null; keep: string | null }> = []
+    const fetchImpl = bearerFetch({
+      read: async () => stored,
+      refresh: async () => stored,
+      persist: async () => {},
+      fetch: async (_input, init) => {
+        const headers = new Headers(init?.headers ?? {})
+        seen.push({ authorization: headers.get("authorization"), keep: headers.get("x-keep") })
+        return new Response("ok")
+      },
+    })
+    await fetchImpl("https://gateway/v1/chat/completions", {
+      headers: { Authorization: "Bearer STALE-BAKED", "x-keep": "1" },
+    })
+    expect(seen.at(-1)).toEqual({ authorization: "Bearer fresh-access", keep: "1" })
+  })
+
+  test("signed out: request passes through with no Authorization and never refreshes", async () => {
+    let auth: string | null = "unset"
+    const fetchImpl = bearerFetch({
+      read: async () => undefined,
+      refresh: async () => {
+        throw new Error("refresh must not run when signed out")
+      },
+      persist: async () => {},
+      fetch: async (_input, init) => {
+        auth = new Headers(init?.headers ?? {}).get("authorization")
+        return new Response("ok")
+      },
+    })
+    await fetchImpl("https://gateway/v1/chat/completions")
+    expect(auth).toBeNull()
+  })
+
+  test("concurrent near-expiry requests trigger exactly one refresh (single-flight)", async () => {
+    let stored = credential({ access_token: "access-A", refresh_token: "refresh-sf", expires_in: 10 })
+    let refreshCount = 0
+    const seen: Array<string | null> = []
+    const fetchImpl = bearerFetch({
+      read: async () => stored,
+      refresh: async () => {
+        refreshCount++
+        await new Promise((resolve) => setTimeout(resolve, 10)) // widen the in-flight window
+        return credential({ access_token: "access-B", refresh_token: "refresh-B", expires_in: 3600 })
+      },
+      persist: async (next) => {
+        stored = next
+      },
+      fetch: async (_input, init) => {
+        seen.push(new Headers(init?.headers ?? {}).get("authorization"))
+        return new Response("ok")
+      },
+    })
+    await Promise.all([
+      fetchImpl("https://gateway/v1/chat/completions"),
+      fetchImpl("https://gateway/v1/chat/completions"),
+      fetchImpl("https://gateway/v1/chat/completions"),
+    ])
+    expect(refreshCount).toBe(1) // one exchange shared by all three
+    expect(seen).toEqual(["Bearer access-B", "Bearer access-B", "Bearer access-B"])
   })
 
   test("login fails clearly when the loopback port is in use", async () => {
