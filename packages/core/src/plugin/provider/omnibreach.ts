@@ -143,6 +143,45 @@ export function authorize(issuerURL: string, client: string) {
   })
 }
 
+// Pre-expiry window: refresh once the credential is within this long of expiry (or past it), rather
+// than only after a 401. Matches the ~60s precedent commented in chatgpt.ts (`expires <= now + 60_000`).
+export const REFRESH_MARGIN_MS = 60_000
+
+/** True when the credential is within REFRESH_MARGIN_MS of expiry (or already expired). T4 gates on this. */
+export function needsRefresh(credential: Pick<Credential.OAuth, "expires">, nowMs: number = Date.now()) {
+  return credential.expires <= nowMs + REFRESH_MARGIN_MS
+}
+
+/**
+ * Refreshes an OAuth credential: discover the token endpoint, POST grant_type=refresh_token + client_id,
+ * and return a new credential with a fresh ABSOLUTE expiry. The old refresh token is carried forward when
+ * the server does not rotate it. A rejected/revoked token (invalid_grant / 4xx) becomes an actionable
+ * re-login error. Parameterized (issuerURL/client) like `authorize` so the hermetic test targets the stub;
+ * the registered method passes the module consts.
+ */
+export function refresh(value: Credential.OAuth, issuerURL: string, client: string) {
+  return discover(issuerURL).pipe(
+    Effect.flatMap((endpoints) =>
+      tokenRequest(endpoints.token_endpoint, {
+        grant_type: "refresh_token",
+        refresh_token: value.refresh,
+        client_id: client,
+      }).pipe(
+        Effect.map((tokens) => credential({ ...tokens, refresh_token: tokens.refresh_token || value.refresh })),
+        // ponytail: any token-POST failure (not just 4xx) maps to re-login guidance — a refresh failure
+        // overwhelmingly means a dead/revoked session, and the original detail is preserved for the rare
+        // transient case. Split out per-status handling only if T4's request path needs transient retries.
+        Effect.mapError((cause) => {
+          const detail = cause instanceof Error ? cause.message : String(cause)
+          return new Error(
+            `Your OmniBreach session has expired or was revoked (${detail}). Run \`omnibreach auth login\` to sign in again.`,
+          )
+        }),
+      ),
+    ),
+  )
+}
+
 const browserMethod = {
   integrationID,
   method: {
@@ -151,6 +190,7 @@ const browserMethod = {
     label: "Login with OmniBreach",
   },
   authorize: () => authorize(issuer, clientID),
+  refresh: (value) => refresh(value, issuer, clientID),
 } satisfies IntegrationOAuthMethodRegistration
 
 export const OmnibreachPlugin = define({
