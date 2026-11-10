@@ -18,6 +18,7 @@ import { ModalPlugin } from "./provider/modal.js"
 import { NeonPlugin } from "./provider/neon.js"
 import { NvidiaPlugin } from "./provider/nvidia.js"
 import { OllamaPlugin } from "./provider/ollama.js"
+import { OmnibreachPlugin } from "./provider/omnibreach.js"
 import { OpenAIPlugin } from "./provider/openai.js"
 import { OpenAIContextCapsPlugin } from "./provider/openai-context-caps.js"
 import { SnowflakeCortexPlugin } from "./provider/snowflake-cortex.js"
@@ -53,6 +54,7 @@ export const ProviderPlugins: PluginInternal.InternalPlugin[] = [
   NeonPlugin,
   NvidiaPlugin,
   OllamaPlugin,
+  OmnibreachPlugin,
   OpencodePlugin,
   SnowflakeCortexPlugin,
   OpenAIPlugin,
