@@ -6,6 +6,8 @@ import { Credential } from "../../credential.js"
 import { Integration } from "../../integration.js"
 import { OauthCallbackPage } from "../../oauth/page.js"
 import { Provider } from "../../provider.js"
+import { Npm } from "@opencode/util/npm"
+import { loadSDKFactory } from "./sdk-factory.js"
 import type { PluginInternal } from "../internal.js"
 
 const integrationID = Integration.ID.make("omnibreach")
@@ -245,6 +247,11 @@ export function bearerFetch(deps: BearerFetchDeps): AuthFetch {
     const key = credential.refresh
     const inflight = refreshing.get(key)
     if (inflight) return inflight
+    // Dual refresh paths exist: the framework also refreshes this credential via the registered oauth
+    // `refresh` method on its own (~5-min) expiry margin, and this 60s-margin backstop is a second one.
+    // IF CF Access rotates refresh tokens, the two could briefly race on the now-spent old token → one
+    // `invalid_grant` → a spurious re-login. Acceptable at single-user CLI scale: the in-process
+    // single-flight below plus the framework's cross-process credentials.lock keep the overlap tiny.
     const attempt = (async () => {
       try {
         const next = await deps.refresh(credential)
@@ -298,6 +305,7 @@ export const OmnibreachPlugin = define({
   id: "opencode.provider.omnibreach",
   effect: Effect.fn(function* (ctx) {
     const credentials = yield* Credential.Service
+    const npm = yield* Npm.Service
     yield* ctx.integration.transform((draft) => {
       draft.method.update(browserMethod)
       draft.method.update(headlessMethod)
@@ -333,9 +341,18 @@ export const OmnibreachPlugin = define({
       )
 
     // Attach the Bearer at the fetch layer (the github-copilot precedent for an openai-compatible
-    // provider): wrap the AI SDK's timeout-aware fetch before the SDK is built, so every /v1/* call
-    // carries the current token. NOT provider `settings.fetch` — a function there is stripped by
-    // Provider.mergeOverlay's JSON decode at model-resolve time.
+    // provider): wrap the AI SDK's timeout-aware fetch, then BUILD the SDK here from that wrapped fetch,
+    // so every /v1/* call carries the current token. NOT provider `settings.fetch` — a function there is
+    // stripped by Provider.mergeOverlay's JSON decode at model-resolve time.
+    //
+    // Why build evt.sdk in-hook (github-copilot.ts does the same) instead of only mutating
+    // evt.options.fetch and letting DynamicProviderPlugin build later: that worked ONLY while
+    // OmnibreachPlugin preceded DynamicProviderPlugin in provider.ts's ProviderPlugins array — an
+    // unasserted ordering invariant. A reorder would have had Dynamic build the SDK with the UNWRAPPED
+    // fetch → no Authorization header → gateway 401, and no test would fail. loadSDKFactory resolves the
+    // EXACT @ai-v6-tagged factory + evt.options Dynamic would have used (so no provider setup is skipped),
+    // and we overwrite evt.sdk — so the wrapped fetch is baked in regardless of plugin order (Dynamic
+    // then no-ops on an already-set evt.sdk).
     yield* ctx.aisdk.hook(
       "sdk",
       Effect.fn(function* (evt) {
@@ -347,6 +364,8 @@ export const OmnibreachPlugin = define({
           persist: persistCredential,
           fetch: inner,
         })
+        const factory = yield* loadSDKFactory(npm, evt.package)
+        evt.sdk = (factory as (options: any) => any)(evt.options)
       }),
     )
   }),
